@@ -650,21 +650,23 @@ const dmPsych = (function() {
   // function for drawing hole in one game on canvas
   obj.holeInOne = (function () {
 
-    var game = {};
+    let game = {};
 
     // import methods from matter.js and define physics engine
-    var { Engine, Render, Vertices, Composite, World, Bodies, Events, Mouse, MouseConstraint } = Matter;
-    var engine = Engine.create();
+    let { Engine, Render, Vertices, Composite, World, Bodies, Events, Mouse, MouseConstraint } = Matter;
+    let engine = Engine.create();
 
 
 
     // temporary data
-    var ballXtrial = [0];   // ball's X coordinates on current trial
-    var ballYtrial = [0];   // ball's Y coordinate on current trial
-    var endTrial = false; // flag whether the current trial is complete
-    var firing = false;   // flag whether the slingshot was fired
-    var inTheHole = false;  // flag whether the ball went through the hold
-    var intro = 0;        // use to determine which instructions to display during introduction
+    let ballXtrial = [0];   // ball's X coordinates on current trial
+    let ballYtrial = [0];   // ball's Y coordinate on current trial
+    let endTrial = false; // flag whether the current trial is complete
+    let firing = false;   // flag whether the slingshot was fired
+    let inTheHole = false;  // flag whether the ball went through the hold
+    let intro = 0;        // use to determine which instructions to display during introduction
+    let warning = false;  // warn user to stay in play area
+    let dragging = false; // true when user is drawing sling
 
     // data to save
     game.data = {
@@ -708,37 +710,15 @@ const dmPsych = (function() {
         }
       };
 
-      // create renderer
-      var render = Render.create({ 
-        engine: engine, 
-        canvas: c, 
-        options: {
-          height: set.canvas.height,
-          width: set.canvas.width,
-          wireframes: false,
-          writeText: text
-        },
-      });
-
       // construct ball
       function Ball() {           
-        this.body = Bodies.circle(set.ball.x, set.ball.y, set.ball.rad, { 
-          frictionAir: set.ball.fric,
-          render: {
-            fillStyle: set.ball.col,
-          }
-        });
+        this.body = Bodies.circle(set.ball.x, set.ball.y, set.ball.rad, { frictionAir: set.ball.fric });
         World.add(engine.world, this.body);
       };
 
       // construct target
       function Wall(y, tri) {
-        this.body = Bodies.fromVertices(set.wall.x, y, tri, {
-          isStatic: true,
-          render: {
-            fillStyle: set.wall.col,
-          }
-        });
+        this.body = Bodies.fromVertices(set.wall.x, y, tri, { isStatic: true });
         World.add(engine.world, this.body);
       };
 
@@ -754,19 +734,20 @@ const dmPsych = (function() {
 
       // construct mouse
       function makeMouse() {    
-        mouse = Mouse.create(render.canvas);
-        mouseConstraint = MouseConstraint.create(engine, {
-          mouse: mouse,
-          constraint: {
-            render: {visible: false}
-          }
-        });
+        mouse = Mouse.create(c);
+        mouseConstraint = MouseConstraint.create(engine, { mouse: mouse });
         World.add(engine.world, mouseConstraint);
-        render.mouse = mouse;
       };
 
       // construct text
       function text(c) {
+
+        if (warning) {
+          c.font = "bold 25px Arial";
+          c.fillStyle = 'red';
+          c.fillText("Please keep your mouse inside the play area.", 75, 350);          
+        }
+
         if (intro <= 3) {
           c.font = "bold 20px Arial";
           c.fillStyle = 'red';
@@ -800,24 +781,44 @@ const dmPsych = (function() {
       function shootSling() { 
         Events.on(mouseConstraint, 'startdrag', function(e) {
           tracker.ball = ball;
+          dragging = true;
           endTrial = false;
-          intro++;
+          if (!warning) {
+            intro++;
+          } else {
+            warning = false;
+          };
         });
         Events.on(mouseConstraint, 'enddrag', function(e) {
-          if(e.body === ball) firing = true;
+          if(e.body === ball) {
+            firing = true;
+            dragging = false;
+          };
         });
         Events.on(engine, 'beforeUpdate', function() {
           var xDelta = Math.abs(ball.position.x-set.ball.x);
           var yDelta = Math.abs(ball.position.y-set.ball.y);
           if(firing && xDelta < (set.ball.rad*2) && yDelta < (set.ball.rad*2)) {
             sling.bodyB = null;
-            sling.pointB.x = set.ball.x;
-            sling.pointB.y = set.ball.y;
             firing = false;
             intro++;
           };
         });
       };
+
+      c.addEventListener("mouseleave", () => {
+        // reset sling if player leaves canvas
+        if (dragging & !warning) {
+          warning = true;
+          World.remove(engine.world, ball)
+          ball = new Ball().body;
+          sling.bodyB = ball;
+          makeMouse();
+          shootSling();
+          trackBall();
+          recordData();
+        }
+      });
 
       // track location of ball
       function trackBall() {    
@@ -860,8 +861,6 @@ const dmPsych = (function() {
 
             // replace ball
             ball = new Ball().body;
-            sling.pointB.x = null;
-            sling.pointB.y = null;
             sling.bodyB = ball;
           };
         })
